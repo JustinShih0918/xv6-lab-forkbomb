@@ -3,6 +3,53 @@
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/param.h"
+
+// Global array to track background jobs
+int jobs[NPROC];
+
+// Helper function to add a background job
+void add_job(int pid) {
+  for (int i = 0; i < NPROC; i++) {
+    if (jobs[i] == 0) {
+      jobs[i] = pid;
+      break;
+    }
+  }
+}
+
+// Helper function to remove a background job
+void remove_job(int pid) {
+  for (int i = 0; i < NPROC; i++) {
+    if (jobs[i] == pid) {
+      jobs[i] = 0;
+      break;
+    }
+  }
+}
+
+// Helper function to check if a pid is a background job
+int is_background_job(int pid) {
+  for (int i = 0; i < NPROC; i++) {
+    if (jobs[i] == pid) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// Helper function to reap background jobs
+void reap_background_jobs() {
+  int status;
+  int pid;
+  while ((pid = wait_noblock(&status)) > 0) {
+    if (is_background_job(pid)) {
+      printf("[bg %d] exited with status %d\n", pid, status);
+      remove_job(pid);
+    }
+  }
+}
+
 
 // Parsed command representation
 #define EXEC  1
@@ -54,7 +101,7 @@ void panic(char*);
 struct cmd *parsecmd(char*);
 void runcmd(struct cmd*) __attribute__((noreturn));
 
-// Execute cmd.  Never returns.
+// Execute cmd.  Returns for BACK commands, otherwise never returns.
 void
 runcmd(struct cmd *cmd)
 {
@@ -124,8 +171,9 @@ runcmd(struct cmd *cmd)
 
   case BACK:
     bcmd = (struct backcmd*)cmd;
-    if(fork1() == 0)
-      runcmd(bcmd->cmd);
+    // For background commands, just execute the command directly
+    // The fork will happen in main()
+    runcmd(bcmd->cmd);
     break;
   }
   exit(0);
@@ -142,11 +190,52 @@ getcmd(char *buf, int nbuf)
   return 0;
 }
 
+// Read a line from a file descriptor
 int
-main(void)
+getline_fd(char *buf, int nbuf, int fd)
+{
+  int i, cc = 0;
+  char c;
+
+  for(i=0; i+1 < nbuf; ){
+    cc = read(fd, &c, 1);
+    if(cc < 1)
+      break;
+    buf[i++] = c;
+    if(c == '\n' || c == '\r')
+      break;
+  }
+  buf[i] = '\0';
+  
+  if(i == 0 && cc < 1) // EOF
+    return -1;
+  return 0;
+}
+
+int
+main(int argc, char* argv[])
 {
   static char buf[100];
   int fd;
+  int pid;
+  struct cmd *cmd;
+  int script_fd = -1;  // File descriptor for script file
+  int interactive = 1;  // Whether running in interactive mode
+
+  // Initialize jobs array
+  for (int i = 0; i < NPROC; i++) {
+    jobs[i] = 0;
+  }
+
+  // Check if we should run a script file
+  if(argc > 1){
+    script_fd = open(argv[1], O_RDONLY);
+    if(script_fd < 0){
+      fprintf(2, "sh: cannot open %s\n", argv[1]);
+      exit(1);
+    }
+    interactive = 0;
+  }
 
   // Ensure that three file descriptors are open.
   while((fd = open("console", O_RDWR)) >= 0){
@@ -157,7 +246,28 @@ main(void)
   }
 
   // Read and run input commands.
-  while(getcmd(buf, sizeof(buf)) >= 0){
+  while(1){
+    int ret;
+    // BEFORE printing a new command prompt (or before reading next script line), poll background jobs
+    reap_background_jobs();
+
+    if(interactive){
+      ret = getcmd(buf, sizeof(buf));
+    } else {
+      ret = getline_fd(buf, sizeof(buf), script_fd);
+    }
+
+    if(ret < 0)
+      break;
+
+    // AFTER inputting a command, poll for exited background jobs
+    reap_background_jobs();
+
+    // Skip empty lines and lines with only whitespace
+    if(buf[0] == '\n' || buf[0] == 0 || buf[0] == '\r')
+      continue;
+
+    // Handle cd command (must be called by parent)
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
@@ -165,10 +275,67 @@ main(void)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0)
-      runcmd(parsecmd(buf));
-    wait(0);
+
+    // Handle jobs command (built-in)
+    if(buf[0] == 'j' && buf[1] == 'o' && buf[2] == 'b' && buf[3] == 's' && 
+       (buf[4] == '\n' || buf[4] == 0)){
+      for (int i = 0; i < NPROC; i++) {
+        if (jobs[i] != 0) {
+          printf("%d\n", jobs[i]);
+        }
+      }
+      continue;
+    }
+
+    // Parse the command
+    cmd = parsecmd(buf);
+    
+    // Check if this is a background command
+    if(cmd->type == BACK){
+      // Fork once for background job
+      pid = fork1();
+      if(pid == 0){
+        // Child process - execute the command
+        runcmd(cmd);
+        exit(0);
+      } else {
+        // Parent process - print PID and add to jobs list
+        printf("[%d]\n", pid);
+        add_job(pid);
+      }
+    } else {
+      // Foreground command - fork and wait
+      pid = fork1();
+      if(pid == 0){
+        // Child process
+        runcmd(cmd);
+        exit(0);
+      } else {
+        // Parent process - wait for foreground job to complete
+        int status;
+        int wait_pid;
+        while((wait_pid = wait(&status)) > 0){
+          if(wait_pid == pid){
+            // This is our foreground process
+            break;
+          } else if(is_background_job(wait_pid)){
+            // This is a background job that finished
+            printf("[bg %d] exited with status %d\n", wait_pid, status);
+            remove_job(wait_pid);
+          }
+        }
+      }
+    }
+
+    // BEFORE printing a new command prompt, poll for exited background jobs
+    reap_background_jobs();
   }
+  
+  // Close script file if it was opened
+  if(script_fd >= 0){
+    close(script_fd);
+  }
+  
   exit(0);
 }
 

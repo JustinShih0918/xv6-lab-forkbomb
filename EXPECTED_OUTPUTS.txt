@@ -1,0 +1,421 @@
+===============================================================================
+XVS FORK-BOMB LAB - EXPECTED OUTPUTS FOR ALL TEST CASES
+===============================================================================
+
+This file contains all expected outputs for the xv6 fork-bomb lab test cases.
+Use this as a reference to understand what your implementation should produce.
+
+===============================================================================
+STEP 2: BACKGROUND JOB HANDLING
+===============================================================================
+
+-------------------------------------------
+Step 2, Case 1: Multiple background jobs with sequential PIDs
+-------------------------------------------
+Input:
+sleep 5 &
+sleep 5 &
+sleep 5 &
+
+Expected Output:
+$ sleep 5 &
+[3]
+$ sleep 5 &
+[4]
+$ sleep 5 &
+[5]
+$ 
+
+Notes:
+- PIDs should increment by 1 (not 2) - only one fork per background job
+- Print [pid] immediately after starting each background job
+- Print $ prompt after reaping background jobs
+
+
+-------------------------------------------
+Step 2, Case 2: Background job with file error
+-------------------------------------------
+Input:
+ls asdfgh &
+ls asdfgh
+
+Expected Output:
+$ ls asdfgh &
+[3]
+ls: cannot open asdfgh
+[bg 3] exited with status 0
+$ ls asdfgh
+ls: cannot open asdfgh
+$
+
+Notes:
+- Error message from background job appears before [bg X] exited
+- Reap background job AFTER inputting next command
+- Then execute the foreground command
+
+
+-------------------------------------------
+Step 2, Case 3: Background jobs finish during foreground job
+-------------------------------------------
+Input:
+sleep 5 &
+sleep 5 &
+sleep 5 &
+sleep 10
+
+Expected Output:
+$ sleep 5 &
+[3]
+$ sleep 5 &
+[4]
+$ sleep 5 &
+[5]
+$ sleep 10
+[bg 3] exited with status 0
+[bg 4] exited with status 0
+[bg 5] exited with status 0
+$ 
+
+Notes:
+- Background jobs finish while foreground job (sleep 10) is running
+- Print all background job exits before the next prompt
+
+
+-------------------------------------------
+Step 2, Case 4: Background pipeline
+-------------------------------------------
+Input:
+sleep 10 | sleep 10 &
+
+Expected Output:
+$ sleep 10 | sleep 10 &
+[3]
+$ 
+
+Notes:
+- For pipelines, print the PID of the first command
+- Only ONE $ prompt should appear (not multiple)
+
+
+-------------------------------------------
+Step 2, Case 5: Non-existent command as background job
+-------------------------------------------
+Input:
+asdfgh &
+cd
+
+Expected Output:
+$ asdfgh &
+[3]
+exec asdfgh failed
+[bg 3] exited with status 0
+$ cd
+exec cd failed
+$
+
+Notes:
+- Print PID even for non-existent commands
+- Error message "exec asdfgh failed" appears
+- Reap the background job [bg 3] before executing cd
+- cd is a built-in so its error is "exec cd failed" (expected behavior)
+
+
+-------------------------------------------
+Step 2, Case 6: Pipeline with output as background job
+-------------------------------------------
+Input:
+ls README | cat &
+
+Expected Output:
+$ ls README | cat &
+[3]
+README         2 2 2292
+[bg 3] exited with status 0
+$ 
+
+Notes:
+- Pipeline output appears normally
+- Background job is reaped before next prompt
+
+
+===============================================================================
+STEP 3: JOBS COMMAND
+===============================================================================
+
+-------------------------------------------
+Step 3, Case 1: Background job with exit status 1
+-------------------------------------------
+Input:
+cat asdfgh &
+
+
+Expected Output:
+$ cat asdfgh &
+[3]
+cat: cannot open asdfgh
+[bg 3] exited with status 1
+$
+
+Notes:
+- Exit status should be 1 (not 0) for failed cat command
+- Empty line after [3] allows time for error message
+
+
+-------------------------------------------
+Step 3, Case 2: List running jobs
+-------------------------------------------
+Input:
+sleep 5 &
+sleep 5 &
+jobs
+
+Expected Output:
+$ sleep 5 &
+[3]
+$ sleep 5 &
+[4]
+$ jobs
+3
+4
+$ 
+
+Notes:
+- jobs command lists all currently running background PIDs
+- One PID per line
+
+
+-------------------------------------------
+Step 3, Case 3: Jobs finish, then list jobs
+-------------------------------------------
+Input:
+sleep 6 &
+sleep 9 &
+sleep 13 &
+sleep 20
+jobs
+
+Expected Output:
+$ sleep 6 &
+[3]
+$ sleep 9 &
+[4]
+$ sleep 13 &
+[5]
+$ sleep 20
+[bg 3] exited with status 0
+[bg 4] exited with status 0
+[bg 5] exited with status 0
+$ jobs
+$
+
+Notes:
+- After all jobs finish, jobs command prints nothing
+- Empty output means no jobs are running
+
+
+-------------------------------------------
+Step 3, Case 4: Jobs still running after short foreground job
+-------------------------------------------
+Input:
+sleep 10 &
+sleep 10 &
+jobs
+sleep 1
+jobs
+
+Expected Output:
+$ sleep 10 &
+[3]
+$ sleep 10 &
+[4]
+$ jobs
+3
+4
+$ sleep 1
+$ jobs
+3
+4
+$ 
+
+Notes:
+- After sleep 1, background jobs are still running
+- jobs command still shows both PIDs
+
+
+-------------------------------------------
+Step 3, Case 5: Jobs gradually finish
+-------------------------------------------
+Input:
+sleep 5 &
+sleep 15 &
+jobs
+sleep 10
+jobs
+sleep 15
+jobs
+
+Expected Output:
+$ sleep 5 &
+[3]
+$ sleep 15 &
+[4]
+$ jobs
+3
+4
+$ sleep 10
+[bg 3] exited with status 0
+$ jobs
+4
+$ sleep 15
+[bg 4] exited with status 0
+$ jobs
+$
+
+Notes:
+- After first sleep 10, only job 3 finishes (it was sleep 5)
+- After second sleep 15, job 4 finishes
+- Final jobs shows nothing
+
+
+-------------------------------------------
+Step 3, Case 6: Background job finishes during foreground job
+-------------------------------------------
+Input:
+sleep 4 &
+sleep 5
+
+Expected Output:
+$ sleep 4 &
+[3]
+$ sleep 5
+[bg 3] exited with status 0
+$ 
+
+Notes:
+- Background job finishes while foreground job is running
+- Reap message appears before next prompt
+
+
+===============================================================================
+STEP 4: SHELL SCRIPTS
+===============================================================================
+
+-------------------------------------------
+Step 4, Case 1: Shell script 4_1.sh
+-------------------------------------------
+Input:
+sh 4_1.sh
+
+Expected Output:
+$ sh 4_1.sh
+hello
+[5]
+[6]
+5
+6
+[bg 6] exited with status 0
+5
+[bg 5] exited with status 0
+Im awake
+[10]
+10
+done
+$
+
+Notes:
+- Shell script runs multiple commands
+- Background jobs are tracked and reaped properly
+- PIDs may vary but pattern should match
+
+
+-------------------------------------------
+Step 4, Case 2: Shell script 4_2.sh
+-------------------------------------------
+Input:
+sh ./4_2.sh
+
+Expected Output:
+$ sh ./4_2.sh
+hello
+[5]
+5
+[6]
+5
+6
+5
+6
+[bg 5] exited with status 0
+6
+[bg 6] exited with status 0
+done
+$
+
+Notes:
+- Script with different execution pattern
+- Background jobs reaped in correct order
+
+
+-------------------------------------------
+Step 4, Case 3: Non-existent shell script
+-------------------------------------------
+Input:
+sh asdfgh.sh
+
+Expected Output:
+$ sh asdfgh.sh
+sh: cannot open asdfgh.sh
+$ 
+
+Notes:
+- Error message for missing file
+- Shell handles error gracefully
+
+
+===============================================================================
+STEP 5: FORK BOMB PROTECTION
+===============================================================================
+
+-------------------------------------------
+Step 5, Case 1: Fork bomb test
+-------------------------------------------
+Input:
+sh bomb.sh
+
+Expected Output:
+$ sh bomb.sh
+fork
+
+Notes:
+- Should detect and prevent fork bomb
+- May print "fork" message (implementation dependent)
+- Should not hang or crash the system
+
+
+===============================================================================
+COMMON ISSUES AND FIXES
+===============================================================================
+
+Issue 1: PIDs increment by 2 instead of 1
+Fix: Don't fork twice for background jobs. Only fork once in main().
+
+Issue 2: Multiple $ prompts printed
+Fix: Ensure runcmd() exits for all code paths and main() only prints one prompt.
+
+Issue 3: Background jobs not reaped
+Fix: Call reap_background_jobs() AFTER getcmd() and BEFORE printing prompt.
+
+Issue 4: Wrong exit status for background jobs
+Fix: Properly capture and print the exit status from wait_noblock().
+
+Issue 5: Foreground jobs treated as background
+Fix: Only add jobs to jobs[] array for BACK command type.
+
+Issue 6: Jobs command prints exited jobs
+Fix: Remove jobs from jobs[] array when they are reaped.
+
+Issue 7: Pipeline background jobs print wrong PID
+Fix: For PIPE + BACK, print the PID of the first fork (left side of pipe).
+
+===============================================================================
+END OF EXPECTED OUTPUTS
+===============================================================================
