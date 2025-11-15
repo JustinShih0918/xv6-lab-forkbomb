@@ -302,6 +302,13 @@ main(int argc, char* argv[])
         // Parent process - print PID and add to jobs list
         printf("[%d]\n", pid);
         add_job(pid);
+        
+        // Give the child a moment to start and potentially print error messages
+        // This helps ensure error messages appear before the prompt
+        sleep(1);
+        
+        // Check if the background job exited immediately
+        reap_background_jobs();
       }
     } else {
       // Foreground command - fork and wait
