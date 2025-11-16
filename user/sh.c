@@ -248,9 +248,7 @@ main(int argc, char* argv[])
   // Read and run input commands.
   while(1){
     int ret;
-    // BEFORE printing a new command prompt (or before reading next script line), poll background jobs
-    reap_background_jobs();
-
+    
     if(interactive){
       ret = getcmd(buf, sizeof(buf));
     } else {
@@ -306,9 +304,6 @@ main(int argc, char* argv[])
         // Give the child a moment to start and potentially print error messages
         // This helps ensure error messages appear before the prompt
         sleep(1);
-        
-        // Check if the background job exited immediately
-        reap_background_jobs();
       }
     } else {
       // Foreground command - fork and wait
